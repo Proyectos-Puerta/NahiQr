@@ -24,9 +24,16 @@ export default {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.25' },
         },
+        // Fill layer grows from the bottom (scaleY 0) to the top (scaleY 1), holds full, then restarts.
+        'battery-fill': {
+          '0%': { transform: 'scaleY(0)' },
+          '85%': { transform: 'scaleY(1)' },
+          '100%': { transform: 'scaleY(1)' },
+        },
       },
       animation: {
         'pulse-slow': 'pulse-slow 2.4s ease-in-out infinite',
+        'battery-fill': 'battery-fill 3s ease-in-out infinite',
       },
       backgroundImage: {
         // Dark yellow/black mix at the very top (#3B3109 ≈ brand-yellow at 25% over black),
