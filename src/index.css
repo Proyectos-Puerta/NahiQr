@@ -1,0 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Permanent+Marker&family=VT323&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  background-color: #1d1c1e;
+}
