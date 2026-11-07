@@ -1072,15 +1072,15 @@ const Footer = ({ dateRevealed }: FooterProps) => (
 );
 
 // ============================================================================
-// Dev tools (never in production builds)
+// Dev tools (hidden unless ?dev is in the URL)
 // ============================================================================
 
 /**
- * Compile-time flag: true under `npm run dev`, or on a deploy built with VITE_DEV_TOOLS=true
- * (e.g. a Vercel Preview env var). Otherwise Vite inlines `false` and the panel is dropped
- * from the bundle, so visitors can't unlock the reveal early.
+ * Shown on localhost (`npm run dev`) or when the URL has a `dev` param, e.g. `https://…/?dev=true`,
+ * so any phone can test Phase 2 without Vercel config. Read once at load: it's a hidden switch,
+ * not access control (the tentative dates are already in the bundle and the .ics).
  */
-const SHOW_DEV_TOOLS = import.meta.env.DEV || import.meta.env.VITE_DEV_TOOLS === 'true';
+const SHOW_DEV_TOOLS = import.meta.env.DEV || new URLSearchParams(window.location.search).has('dev');
 
 interface DevToolsProps {
   active: boolean;
