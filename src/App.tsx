@@ -1,90 +1,809 @@
-const Battery = () => {
+import { useEffect, useId, useRef, useState } from 'react';
+
+// ============================================================================
+// API
+// ============================================================================
+
+interface StatusResponse {
+  currentScans: number;
+  target: number;
+  isOverloaded: boolean;
+}
+
+interface ScanResponse extends StatusResponse {
+  recorded: boolean;
+}
+
+const POLL_MS = 3000;
+const FALLBACK_TARGET = 15;
+
+const isStatusResponse = (x: unknown): x is StatusResponse =>
+  typeof x === 'object' &&
+  x !== null &&
+  typeof (x as StatusResponse).currentScans === 'number' &&
+  typeof (x as StatusResponse).target === 'number' &&
+  typeof (x as StatusResponse).isOverloaded === 'boolean';
+
+/** Fetches and validates a status payload from the Vercel functions. */
+const fetchStatus = async (url: string, init?: RequestInit): Promise<StatusResponse> => {
+  const res = await fetch(url, { ...init, headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data: unknown = await res.json();
+  if (!isStatusResponse(data)) throw new Error('Respuesta inválida');
+  return data;
+};
+
+type Visitor = 'pending' | 'new' | 'repeat' | 'unknown';
+
+interface CommunityState {
+  status: StatusResponse | null;
+  offline: boolean;
+  visitor: Visitor;
+}
+
+/** Logs this visit once, then polls the community counter until the door is forced. */
+const useCommunityStatus = (): CommunityState => {
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [visitor, setVisitor] = useState<Visitor>('pending');
+  const scanSent = useRef(false);
+
+  // POST /api/scan on mount. The ref keeps StrictMode's double-invoked effect from sending it twice.
+  useEffect(() => {
+    if (scanSent.current) return;
+    scanSent.current = true;
+    fetchStatus('/api/scan', { method: 'POST' })
+      .then((data) => {
+        setStatus(data);
+        setOffline(false);
+        setVisitor((data as ScanResponse).recorded ? 'new' : 'repeat');
+      })
+      .catch(() => {
+        setOffline(true);
+        setVisitor('unknown');
+      });
+  }, []);
+
+  const overloaded = status?.isOverloaded ?? false;
+
+  // GET /api/status every 3 s. Stops once overloaded (the unlock is permanent) and skips
+  // while the tab is hidden so pocketed phones don't keep hitting the server.
+  useEffect(() => {
+    if (overloaded) return;
+    let controller: AbortController | null = null;
+
+    const tick = () => {
+      if (document.hidden) return;
+      controller?.abort();
+      controller = new AbortController();
+      fetchStatus('/api/status', { signal: controller.signal })
+        .then((data) => {
+          setStatus(data);
+          setOffline(false);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          setOffline(true);
+        });
+    };
+
+    const id = window.setInterval(tick, POLL_MS);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
+      controller?.abort();
+    };
+  }, [overloaded]);
+
+  return { status, offline, visitor };
+};
+
+// ============================================================================
+// Overload sequence: sealed -> breaching (sparks, flash, lock pops) -> breaking (barrier snaps) -> revealed
+// ============================================================================
+
+type BreachStep = 'sealed' | 'breaching' | 'breaking' | 'revealed';
+
+const BREACH_MS = 1400;
+const RIP_MS = 1000;
+
+const prefersReducedMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const useBreachSequence = (overloaded: boolean): BreachStep => {
+  // Only the timed part of the sequence lives in state; 'sealed' and the reduced-motion
+  // shortcut are derived, so nothing is set synchronously inside the effect.
+  const [timedStep, setTimedStep] = useState<Exclude<BreachStep, 'sealed'>>('breaching');
+  const [reduceMotion] = useState(prefersReducedMotion);
+
+  useEffect(() => {
+    if (!overloaded || reduceMotion) return;
+    const t1 = window.setTimeout(() => setTimedStep('breaking'), BREACH_MS);
+    const t2 = window.setTimeout(() => setTimedStep('revealed'), BREACH_MS + RIP_MS);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [overloaded, reduceMotion]);
+
+  if (!overloaded) return 'sealed';
+  return reduceMotion ? 'revealed' : timedStep;
+};
+
+// ============================================================================
+// Brand graphics (SVG / CSS)
+// ============================================================================
+
+interface ClassNameProps {
+  className?: string;
+}
+
+/** "19 AÑOS" warning-triangle badge from the T-shirt sleeve. */
+const CautionBadge = ({ className = '' }: ClassNameProps) => (
+  <svg viewBox="0 0 100 90" className={className} role="img" aria-label="19 años">
+    <path
+      d="M50 8 94 82H6Z"
+      className="fill-brand-yellow stroke-brand-yellow"
+      strokeWidth={10}
+      strokeLinejoin="round"
+    />
+    <path d="M50 22 81 76H19Z" className="fill-none stroke-brand-black" strokeWidth={4} strokeLinejoin="round" />
+    <text x="50" y="62" textAnchor="middle" className="fill-brand-black font-display text-[26px] font-bold">
+      19
+    </text>
+    <text x="50" y="72" textAnchor="middle" className="fill-brand-black font-display text-[9px] font-bold">
+      AÑOS
+    </text>
+  </svg>
+);
+
+/** Bare caution triangle (no label) for the reveal. */
+const CautionTriangle = ({ className = '' }: ClassNameProps) => (
+  <svg viewBox="0 0 100 90" className={className} aria-hidden="true">
+    <path d="M50 8 94 82H6Z" className="fill-brand-yellow stroke-brand-yellow" strokeWidth={10} strokeLinejoin="round" />
+    <path d="M46 34h8l-1.5 26h-5Z" className="fill-brand-black" />
+    <circle cx="50" cy="69" r="4.5" className="fill-brand-black" />
+  </svg>
+);
+
+// Pixel-art arrow: B = outline, W = fill, . = transparent.
+const CURSOR_ROWS = [
+  'B...........',
+  'BB..........',
+  'BWB.........',
+  'BWWB........',
+  'BWWWB.......',
+  'BWWWWB......',
+  'BWWWWWB.....',
+  'BWWWWWWB....',
+  'BWWWWWWWB...',
+  'BWWWWWWWWB..',
+  'BWWWWWWWWWB.',
+  'BWWWWWWBBBBB',
+  'BWWWBWWB....',
+  'BWWBBWWB....',
+  'BWB..BWWB...',
+  'BB...BWWB...',
+  'B.....BWWB..',
+  '......BWWB..',
+  '.......BB...',
+];
+
+const CURSOR_PIXELS = CURSOR_ROWS.flatMap((row, y) =>
+  [...row].flatMap((cell, x) => (cell === '.' ? [] : [{ x, y, outline: cell === 'B' }])),
+);
+
+const PixelCursor = ({ className = '' }: ClassNameProps) => (
+  <svg viewBox="0 0 12 19" shapeRendering="crispEdges" className={className} aria-hidden="true">
+    {CURSOR_PIXELS.map(({ x, y, outline }) => (
+      <rect
+        key={`${x}-${y}`}
+        x={x}
+        y={y}
+        width={1}
+        height={1}
+        className={outline ? 'fill-brand-black' : 'fill-brand-white'}
+      />
+    ))}
+  </svg>
+);
+
+/** Slotted steel screw head ("detalles realistas"). */
+const Screw = ({ className = '' }: ClassNameProps) => {
+  const id = useId();
   return (
-    <div className="flex flex-col items-center" role="img" aria-label="Cargando">
-      {/* Terminal cap */}
-      <div className="h-3 w-10 rounded-t-sm bg-brand-light" />
-
-      {/* Body outline */}
-      <div className="relative h-48 w-28 rounded-xl border-4 border-brand-light p-1.5">
-        <div className="relative h-full w-full overflow-hidden rounded-md">
-          <div className="absolute inset-0 origin-bottom animate-battery-fill bg-brand-light" />
-        </div>
-
-        {/* Lightning bolt: yellow with a dark edge so it reads on both the empty and filled states */}
-        <svg
-          className="absolute inset-0 m-auto h-16 w-16"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path
-            d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"
-            className="fill-brand-yellow stroke-brand-dark"
-            strokeWidth={1.5}
-            strokeLinejoin="round"
-          />
-        </svg>
-      </div>
-    </div>
+    <svg viewBox="0 0 20 20" className={`h-3.5 w-3.5 ${className}`} aria-hidden="true">
+      <defs>
+        <radialGradient id={id} cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stopColor="#F2F3F5" />
+          <stop offset="55%" stopColor="#9DA1A6" />
+          <stop offset="100%" stopColor="#4A4D51" />
+        </radialGradient>
+      </defs>
+      <circle cx="10" cy="10" r="9" fill={`url(#${id})`} className="stroke-brand-black" strokeWidth={1} />
+      <path d="M5 13 15 7" className="stroke-tape-dark" strokeWidth={2.2} strokeLinecap="round" />
+    </svg>
   );
 };
 
-const CensoredDate = () => {
+/** Grainy many-pointed starburst from the "Fondo" set. */
+const STAR_POINTS = Array.from({ length: 24 }, (_, i) => {
+  const r = i % 2 === 0 ? 100 : 62;
+  const a = (Math.PI * i) / 12 - Math.PI / 2;
+  return `${(110 + r * Math.cos(a)).toFixed(1)},${(110 + r * Math.sin(a)).toFixed(1)}`;
+}).join(' ');
+
+const Starburst = ({ className = '' }: ClassNameProps) => {
+  const id = useId();
   return (
-    <div className="relative mt-4 px-4 py-2">
-      {/* Placeholder "date" peeking out under the paint; the real date is never in the DOM */}
-      <span aria-hidden="true" className="select-none font-mono text-4xl tracking-widest text-brand-light/40">
-        XX · XX · XX
+    <svg viewBox="0 0 220 220" className={className} aria-hidden="true">
+      <defs>
+        <filter id={id}>
+          <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="2" seed="26" result="noise" />
+          <feColorMatrix in="noise" type="saturate" values="0" result="mono" />
+          <feComponentTransfer in="mono" result="speckle">
+            <feFuncA type="discrete" tableValues="0 0 0.6 1" />
+          </feComponentTransfer>
+          <feComposite in="SourceGraphic" in2="speckle" operator="in" result="grain" />
+          <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="soft" />
+          <feMerge>
+            <feMergeNode in="soft" />
+            <feMergeNode in="grain" />
+          </feMerge>
+        </filter>
+      </defs>
+      <polygon points={STAR_POINTS} className="fill-brand-violet" filter={`url(#${id})`} />
+    </svg>
+  );
+};
+
+/** Rough-edged spray paint filter shared by the splatter / underline / scribble marks. */
+const SprayFilter = ({ id }: { id: string }) => (
+  <filter id={id}>
+    <feTurbulence type="fractalNoise" baseFrequency="0.08" numOctaves="3" seed="18" />
+    <feDisplacementMap in="SourceGraphic" scale="4" />
+  </filter>
+);
+
+interface SpraySplatProps extends ClassNameProps {
+  /** Tailwind fill class, e.g. "fill-brand-pink". */
+  fill: string;
+}
+
+/** Graffiti splat with drips ("manchas graffiti"). */
+const SpraySplat = ({ className = '', fill }: SpraySplatProps) => {
+  const id = useId();
+  return (
+    <svg viewBox="0 0 120 120" className={className} aria-hidden="true">
+      <defs>
+        <SprayFilter id={id} />
+      </defs>
+      <g className={fill} filter={`url(#${id})`}>
+        <circle cx="42" cy="38" r="20" />
+        <path d="M30 50c2 14 1 30 3 44 1 5 7 5 7 0 0-14-2-28-1-42zM50 52c1 10 0 18 2 26 1 4 6 4 6 0-1-9-2-17-3-27z" />
+        <circle cx="74" cy="22" r="4" />
+        <circle cx="86" cy="40" r="2.5" />
+        <circle cx="70" cy="58" r="3" />
+        <circle cx="16" cy="20" r="2" />
+        <circle cx="94" cy="62" r="1.8" />
+        <circle cx="80" cy="80" r="2.4" />
+        <circle cx="12" cy="64" r="1.6" />
+        <circle cx="60" cy="10" r="1.6" />
+      </g>
+    </svg>
+  );
+};
+
+/** Spray asterisk/spark tag next to "PROBAR." (T-shirt back print). */
+const SprayStar = ({ className = '' }: ClassNameProps) => {
+  const id = useId();
+  return (
+    <svg viewBox="0 0 40 40" className={className} aria-hidden="true">
+      <defs>
+        <SprayFilter id={id} />
+      </defs>
+      <g className="stroke-brand-yellow" strokeWidth={4} strokeLinecap="round" filter={`url(#${id})`}>
+        <path d="M20 4v32M4 20h32M8 8l24 24M32 8 8 32" />
+      </g>
+    </svg>
+  );
+};
+
+/** Yellow spray underline with paint drips (under "INTENTAR"). */
+const SprayUnderline = ({ className = '' }: ClassNameProps) => {
+  const id = useId();
+  return (
+    <span className={`pointer-events-none absolute inset-x-[-4%] ${className}`} aria-hidden="true">
+      <svg viewBox="0 0 200 16" preserveAspectRatio="none" className="block h-3 w-full">
+        <defs>
+          <SprayFilter id={id} />
+        </defs>
+        <path
+          d="M2 9c30-5 70-6 110-4s60 3 86 1"
+          className="fill-none stroke-brand-yellow"
+          strokeWidth={6}
+          strokeLinecap="round"
+          filter={`url(#${id})`}
+        />
+      </svg>
+      <span className="absolute left-[22%] top-2 h-5 w-[3px] origin-top animate-drip rounded-b-full bg-brand-yellow motion-reduce:animate-none" />
+      <span className="absolute left-[58%] top-2 h-8 w-1 origin-top animate-drip rounded-b-full bg-brand-yellow [animation-delay:1s] motion-reduce:animate-none" />
+      <span className="absolute left-[84%] top-2 h-3 w-[3px] origin-top animate-drip rounded-b-full bg-brand-yellow [animation-delay:1.6s] motion-reduce:animate-none" />
+    </span>
+  );
+};
+
+/** Scribble crossing out part of "FALLAR." */
+const SprayScribble = ({ className = '' }: ClassNameProps) => {
+  const id = useId();
+  return (
+    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className={className} aria-hidden="true">
+      <defs>
+        <SprayFilter id={id} />
+      </defs>
+      <path
+        d="M4 26 24 12 34 30 54 10 66 28 86 12 96 22"
+        className="fill-none stroke-brand-yellow"
+        strokeWidth={4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        filter={`url(#${id})`}
+      />
+    </svg>
+  );
+};
+
+// ============================================================================
+// FX components
+// ============================================================================
+
+interface GlitchTextProps extends ClassNameProps {
+  text: string;
+  /** Constant hard glitching instead of the occasional idle hiccup. */
+  intense?: boolean;
+}
+
+/** Text with pink / cyan sliced copies rendered in ::before / ::after. */
+const GlitchText = ({ text, className = '', intense = false }: GlitchTextProps) => (
+  <span
+    data-text={text}
+    className={[
+      'relative inline-block',
+      'before:pointer-events-none before:absolute before:inset-0 before:text-brand-pink before:content-[attr(data-text)]',
+      'after:pointer-events-none after:absolute after:inset-0 after:text-fx-cyan after:content-[attr(data-text)]',
+      'motion-reduce:before:hidden motion-reduce:after:hidden',
+      intense
+        ? 'before:animate-glitch-a after:animate-glitch-b'
+        : 'before:animate-glitch-idle-a after:animate-glitch-idle-b',
+      className,
+    ].join(' ')}
+  >
+    {text}
+  </span>
+);
+
+interface DuctTapeProps extends ClassNameProps {
+  label?: string;
+}
+
+const TAPE_CLIP =
+  '[clip-path:polygon(3%_0,97%_0,100%_18%,97%_36%,100%_54%,96%_72%,100%_88%,97%_100%,3%_100%,0_86%,4%_70%,0_52%,3%_34%,0_16%)]';
+
+/** Strip of silver duct tape with torn ends, used as a stuck-on label. */
+const DuctTape = ({ className = '', label }: DuctTapeProps) => (
+  <div className={`drop-shadow-[0_3px_2px_rgba(0,0,0,0.75)] ${className}`} aria-hidden="true">
+    <div
+      className={`flex h-full w-full items-center justify-center bg-tape font-mono text-[11px] tracking-[0.25em] text-brand-black/85 ${TAPE_CLIP}`}
+    >
+      {label}
+    </div>
+  </div>
+);
+
+interface PadlockProps extends ClassNameProps {
+  /** Hard glitch + shackle pops open (overload). */
+  forced?: boolean;
+}
+
+/** Industrial padlock: steel shackle, caution-yellow body with hazard band, status LED. */
+const Padlock = ({ className = '', forced = false }: PadlockProps) => {
+  const id = useId();
+  return (
+    <svg
+      viewBox="0 0 64 84"
+      className={`overflow-visible ${forced ? 'animate-lock-glitch-hard' : 'animate-lock-glitch'} motion-reduce:animate-none ${className}`}
+      aria-hidden="true"
+    >
+      <defs>
+        <pattern id={id} width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="4" height="8" className="fill-brand-black" />
+        </pattern>
+      </defs>
+      {/* Shackle: pivots on its right leg when forced */}
+      <path
+        d="M18 42V24a14 14 0 0 1 28 0v18"
+        className={`fill-none stroke-tape-light [transform-box:fill-box] origin-bottom-right ${forced ? 'animate-shackle-open' : ''}`}
+        strokeWidth={7}
+        strokeLinecap="square"
+      />
+      {/* Body */}
+      <rect x="6" y="38" width="52" height="42" rx="3" className="fill-brand-yellow" />
+      <rect x="6" y="68" width="52" height="12" fill={`url(#${id})`} />
+      <rect x="6" y="38" width="52" height="42" rx="3" className="fill-none stroke-brand-black" strokeWidth={2} />
+      <text x="11" y="47" className="fill-brand-black font-mono text-[6px]">
+        M26
+      </text>
+      <circle cx="51" cy="44.5" r="2.4" className={`fill-brand-red ${forced ? 'animate-strobe' : 'animate-blink'}`} />
+      {/* Keyhole */}
+      <circle cx="32" cy="52" r="5" className="fill-brand-black" />
+      <path d="M29.5 54h5l1.5 10h-8Z" className="fill-brand-black" />
+    </svg>
+  );
+};
+
+interface HazardBarrierProps extends ClassNameProps {
+  label: string;
+  /** Stripes race while the door is being forced. */
+  alarm?: boolean;
+  /** Snaps at the centre seam and both halves fall away. */
+  breaking?: boolean;
+}
+
+interface BarrierFaceProps {
+  label: string;
+  alarm: boolean;
+  /** Which edge of its half the full-width face is pinned to. */
+  side: 'left' | 'right';
+}
+
+/** Full-width barrier artwork; each half renders one copy so the plate splits across the break. */
+const BarrierFace = ({ label, alarm, side }: BarrierFaceProps) => (
+  <div
+    className={`absolute inset-y-0 flex w-[200%] border-y-2 border-brand-black ${side === 'left' ? 'left-0' : 'right-0'}`}
+  >
+    <span className="flex w-5 shrink-0 items-center justify-center border-r-2 border-brand-black bg-steel">
+      <Screw className="h-3 w-3" />
+    </span>
+    <span className={`relative flex-1 bg-hazard-lg ${alarm ? 'animate-hazard-scroll-lg motion-reduce:animate-none' : ''}`}>
+      <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap border-2 border-brand-yellow bg-brand-black px-2 py-0.5 font-mono text-[10px] tracking-[0.25em] text-brand-yellow shadow-[0_0_0_2px_#000]">
+        {label}
       </span>
-      <span className="sr-only">Fecha por revelar</span>
+    </span>
+    <span className="flex w-5 shrink-0 items-center justify-center border-l-2 border-brand-black bg-steel">
+      <Screw className="h-3 w-3 rotate-90" />
+    </span>
+  </div>
+);
 
-      {/* Brush stroke painted over the date, overflowing its box like a quick spray/roller pass */}
-      <div className="pointer-events-none absolute -inset-x-8 -bottom-8 -top-2 -rotate-3" aria-hidden="true">
-        <svg className="h-full w-full" viewBox="0 0 300 100" preserveAspectRatio="none">
-          <defs>
-            <filter id="rough-paint">
-              <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" seed="18" />
-              <feDisplacementMap in="SourceGraphic" scale="6" />
-            </filter>
-          </defs>
-
-          <g className="fill-brand-yellow" filter="url(#rough-paint)">
-            {/* Main stroke: wavy top/bottom edges, ragged bristle ends */}
-            <path d="M8 30C20 18 60 14 100 16s80-6 130-2l25-2 7 5 18-2-8 7 20 2-14 6 18 6-20 4 12 8-20 2 6 8-24-2c-40 6-80 2-120 6s-80-2-110 0l-8-6-8-4 10-6-12-6 10-6z" />
-            {/* Dry-brush streaks trailing off the right end */}
-            <path className="opacity-70" d="M240 20c20-1 40 0 58 2l-1 3c-18-1-38-1-57-2zM236 44c22 0 44 2 62 5l-1 3c-20-2-40-4-61-4z" />
-            {/* Drips running down from the bottom edge */}
-            <path d="M118 58c3 0 5 0 6 1 1 9 0 17 2 24 1 4-5 5-6 1-2-8 0-17-2-26zM196 56c3 0 4 1 5 1 0 6 0 10 1 14 1 3-4 4-5 1-1-5 0-10-1-16z" />
-            {/* Splatter */}
-            <circle cx="24" cy="76" r="3" />
-            <circle cx="40" cy="84" r="1.5" />
-            <circle cx="284" cy="66" r="2.5" />
-            <circle cx="160" cy="8" r="2" />
-            <circle cx="268" cy="82" r="1.5" />
-            <circle cx="78" cy="74" r="2" />
-          </g>
-        </svg>
-      </div>
+/** Heavy yellow/black hazard beam bolted across the door. */
+const HazardBarrier = ({ className = '', label, alarm = false, breaking = false }: HazardBarrierProps) => (
+  <div className={`flex drop-shadow-[0_4px_3px_rgba(0,0,0,0.8)] ${className}`} aria-hidden="true">
+    <div className={`relative h-full w-1/2 overflow-hidden ${breaking ? 'animate-barrier-snap-l' : ''}`}>
+      <BarrierFace label={label} alarm={alarm} side="left" />
     </div>
+    <div className={`relative h-full w-1/2 overflow-hidden ${breaking ? 'animate-barrier-snap-r' : ''}`}>
+      <BarrierFace label={label} alarm={alarm} side="right" />
+    </div>
+  </div>
+);
+
+// Spark rays radiating from a point. Classes are written out in full so Tailwind can see them.
+const SPARK_RAYS = [
+  { rot: 'rotate-0', delay: '[animation-delay:0ms]', tone: 'bg-brand-yellow', len: 'h-8' },
+  { rot: 'rotate-[30deg]', delay: '[animation-delay:60ms]', tone: 'bg-brand-white', len: 'h-5' },
+  { rot: 'rotate-[60deg]', delay: '[animation-delay:120ms]', tone: 'bg-brand-orange', len: 'h-7' },
+  { rot: 'rotate-90', delay: '[animation-delay:30ms]', tone: 'bg-brand-yellow', len: 'h-6' },
+  { rot: 'rotate-[120deg]', delay: '[animation-delay:90ms]', tone: 'bg-brand-white', len: 'h-8' },
+  { rot: 'rotate-[150deg]', delay: '[animation-delay:150ms]', tone: 'bg-brand-yellow', len: 'h-5' },
+  { rot: 'rotate-180', delay: '[animation-delay:20ms]', tone: 'bg-brand-orange', len: 'h-7' },
+  { rot: 'rotate-[210deg]', delay: '[animation-delay:110ms]', tone: 'bg-brand-yellow', len: 'h-6' },
+  { rot: 'rotate-[240deg]', delay: '[animation-delay:70ms]', tone: 'bg-brand-white', len: 'h-8' },
+  { rot: 'rotate-[270deg]', delay: '[animation-delay:140ms]', tone: 'bg-brand-yellow', len: 'h-5' },
+  { rot: 'rotate-[300deg]', delay: '[animation-delay:40ms]', tone: 'bg-brand-orange', len: 'h-7' },
+  { rot: 'rotate-[330deg]', delay: '[animation-delay:100ms]', tone: 'bg-brand-yellow', len: 'h-6' },
+] as const;
+
+const Sparks = ({ className = '' }: ClassNameProps) => (
+  <div className={`pointer-events-none h-0 w-0 ${className}`} aria-hidden="true">
+    {SPARK_RAYS.map(({ rot, delay, tone, len }) => (
+      <span key={rot} className={`absolute left-0 top-0 h-0 w-0 ${rot}`}>
+        <span
+          className={`absolute bottom-0 left-[-1.5px] w-[3px] origin-bottom animate-spark-fly rounded-full shadow-[0_0_6px_#EEC324] ${tone} ${len} ${delay}`}
+        />
+      </span>
+    ))}
+  </div>
+);
+
+/** Fixed CRT layer: scanlines, grain, vignette and a slow rolling refresh band. */
+const CrtOverlay = () => (
+  <div className="pointer-events-none fixed inset-0 z-50" aria-hidden="true">
+    <div className="absolute inset-0 bg-scanlines" />
+    <div className="absolute inset-0 bg-grain opacity-[0.09] mix-blend-overlay" />
+    <div className="absolute inset-x-0 top-0 h-28 animate-scan-roll bg-gradient-to-b from-transparent via-brand-white/[0.05] to-transparent motion-reduce:hidden" />
+    <div className="absolute inset-0 bg-vignette" />
+  </div>
+);
+
+// ============================================================================
+// Sections
+// ============================================================================
+
+interface StatusBarProps {
+  signal: 'linking' | 'live' | 'lost' | 'overload';
+}
+
+const SIGNAL_LABEL: Record<StatusBarProps['signal'], { text: string; dot: string; tone: string }> = {
+  linking: { text: 'ENLAZANDO', dot: 'bg-brand-white', tone: 'text-brand-white/70' },
+  live: { text: 'EN VIVO', dot: 'bg-brand-yellow', tone: 'text-brand-yellow' },
+  lost: { text: 'SIN SEÑAL', dot: 'bg-brand-orange', tone: 'text-brand-orange' },
+  overload: { text: 'SOBRECARGA', dot: 'bg-brand-red', tone: 'text-brand-white' },
+};
+
+const StatusBar = ({ signal }: StatusBarProps) => {
+  const s = SIGNAL_LABEL[signal];
+  return (
+    <header className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="font-mono text-sm tracking-widest text-brand-white">
+          &gt; MUESTRA_26.EXE
+          <span className="ml-1 inline-block h-4 w-2 translate-y-0.5 animate-blink bg-brand-yellow" />
+        </p>
+        <p className={`mt-1 flex items-center gap-2 font-mono text-[10px] tracking-[0.25em] ${s.tone}`}>
+          <span className={`inline-block h-1.5 w-1.5 animate-blink ${s.dot}`} />
+          NODO: PUERTA_18 · {s.text}
+        </p>
+      </div>
+      <CautionBadge className="h-11 w-12 shrink-0 -rotate-6" />
+    </header>
   );
 };
+
+interface ManifestoProps {
+  breaching: boolean;
+}
+
+const Manifesto = ({ breaching }: ManifestoProps) => (
+  <section aria-label="Manifiesto" className="font-display text-[clamp(34px,10.6vw,44px)] font-bold uppercase leading-[0.98] tracking-tight">
+    <p className="flex items-start">
+      PROBAR.
+      <SprayStar className="-ml-1 -mt-1 h-7 w-7" />
+    </p>
+    <p className="relative w-fit">
+      <GlitchText text="FALLAR." intense={breaching} />
+      <SprayScribble className="absolute right-[4%] top-[18%] h-[60%] w-[52%]" />
+    </p>
+    <p>
+      VOLVER A{' '}
+      <span className="relative inline-block">
+        INTENTAR
+        <SprayUnderline className="-bottom-1.5" />
+      </span>
+      .
+    </p>
+  </section>
+);
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+interface CommunityBoardProps {
+  status: StatusResponse | null;
+  offline: boolean;
+  visitor: Visitor;
+  alarm: boolean;
+}
+
+const CommunityBoard = ({ status, offline, visitor, alarm }: CommunityBoardProps) => {
+  const target = status?.target ?? FALLBACK_TARGET;
+  const scans = Math.min(status?.currentScans ?? 0, target);
+  const remaining = target - scans;
+  const overloaded = status?.isOverloaded ?? false;
+
+  let hint: string;
+  if (!status) hint = offline ? 'SEÑAL PERDIDA · REINTENTANDO...' : 'CONECTANDO CON EL TABLERO...';
+  else if (overloaded) hint = 'CARGA MÁXIMA · LA COMUNIDAD LO LOGRÓ';
+  else if (remaining === 1) hint = 'FALTA 1 ESCANEO PARA FORZAR LA PUERTA';
+  else hint = `FALTAN ${remaining} ESCANEOS PARA FORZAR LA PUERTA`;
+
+  const visitorLine: Record<Visitor, string | null> = {
+    pending: null,
+    unknown: null,
+    new: '+1 · TU ESCANEO FUE REGISTRADO',
+    repeat: 'TU ESCANEO YA ESTÁ EN EL CONTEO',
+  };
+
+  return (
+    <section
+      aria-label="Contador de la comunidad"
+      className="relative mt-3 border-2 border-brand-white bg-brand-black px-4 pb-3 pt-6"
+    >
+      <Screw className="absolute left-1.5 top-1.5" />
+      <Screw className="absolute right-1.5 top-1.5 rotate-45" />
+      <Screw className="absolute bottom-1.5 left-1.5 rotate-90" />
+      <Screw className="absolute bottom-1.5 right-1.5 -rotate-12" />
+
+      <DuctTape className="absolute -top-3.5 left-1/2 h-7 w-48 -translate-x-1/2 -rotate-2" label="ESTADO · COMUNIDAD" />
+
+      {alarm && (
+        <p className="mb-3 animate-strobe bg-brand-red py-1 text-center font-display text-lg font-bold tracking-wider text-brand-white motion-reduce:animate-none">
+          ⚠ OVERLOAD // PUERTA FORZADA
+        </p>
+      )}
+
+      <p
+        className="whitespace-nowrap text-center font-pixel text-[clamp(26px,8.4vw,34px)] leading-none text-brand-yellow"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        [ {status ? pad2(scans) : '--'} / {target} ESCANEOS ]
+      </p>
+
+      <div
+        className="mt-3 grid h-5 grid-cols-[repeat(15,minmax(0,1fr))] gap-[3px]"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={target}
+        aria-valuenow={scans}
+        aria-label="Progreso de escaneos"
+      >
+        {Array.from({ length: target }, (_, i) => (
+          <span
+            key={i}
+            className={
+              i < scans
+                ? `animate-hazard-scroll bg-hazard motion-reduce:animate-none ${overloaded ? 'shadow-[0_0_8px_#FE7C00]' : ''}`
+                : 'border border-brand-white/25'
+            }
+          />
+        ))}
+      </div>
+
+      <p
+        className={`mt-2.5 font-mono text-[11px] tracking-[0.18em] ${
+          offline ? 'text-brand-orange' : 'text-brand-white/75'
+        } ${!status ? 'animate-pulse-slow' : ''}`}
+      >
+        {hint}
+      </p>
+      {visitorLine[visitor] && (
+        <p className="mt-1 font-mono text-[10px] tracking-[0.18em] text-brand-yellow/80">{visitorLine[visitor]}</p>
+      )}
+    </section>
+  );
+};
+
+interface MysteryDoorProps {
+  step: BreachStep;
+}
+
+/** The violet arch "puerta", padlocked and barred until the community forces it open. */
+const MysteryDoor = ({ step }: MysteryDoorProps) => {
+  const breaching = step === 'breaching';
+  const breaking = step === 'breaking';
+  const forcing = breaching || breaking;
+  const revealed = step === 'revealed';
+
+  return (
+    <section aria-label="Puerta" className="relative mx-auto h-[262px] w-[208px] shrink-0">
+      {/* Frame: grainy violet arch */}
+      <div className="absolute inset-0 overflow-hidden rounded-t-full bg-brand-violet shadow-[0_0_40px_rgba(146,7,234,0.45)]">
+        <div className="absolute inset-0 bg-grain opacity-50 mix-blend-multiply" />
+
+        {/* Opening */}
+        <div
+          className={`absolute inset-[10px] bottom-0 flex flex-col items-center overflow-hidden rounded-t-full bg-brand-black ${
+            revealed ? 'justify-center' : 'justify-start pt-9'
+          } ${breaching ? 'animate-static-noise bg-grain bg-[length:90px_90px]' : ''}`}
+        >
+          {revealed ? (
+            <div className="flex flex-col items-center px-4 pt-6 text-center">
+              <CautionTriangle className="mb-3 h-9 w-10" />
+              <h2 className="animate-reveal text-balance font-display text-[24px] font-bold uppercase leading-[1.08] text-brand-white [text-shadow:-2px_0_#EE0787,2px_0_#00F0FF] motion-reduce:animate-none">
+                ¿Y si te animás a cruzar la puerta?
+              </h2>
+              <p className="mt-4 animate-stamp bg-brand-yellow px-2 py-1 font-mono text-[11px] tracking-[0.2em] text-brand-black motion-reduce:animate-none">
+                FASE 1 COMPLETADA
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className={breaking ? 'animate-lock-drop motion-reduce:animate-none' : ''}>
+                <Padlock forced={forcing} className="h-[88px] w-16" />
+              </div>
+              <p className="absolute bottom-4 font-mono text-[10px] tracking-[0.3em] text-brand-white/60">
+                {forcing ? 'FORZANDO CERRADURA...' : 'ACCESO RESTRINGIDO'}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Hazard barrier bolted across the frame */}
+      {!revealed && (
+        <HazardBarrier
+          className="absolute -left-6 -right-6 top-[60%] h-11 -rotate-[5deg]"
+          label={forcing ? '⚠ SOBRECARGA ⚠' : 'ACCESO DENEGADO'}
+          alarm={breaching}
+          breaking={breaking}
+        />
+      )}
+
+      {breaching && <Sparks className="absolute left-1/2 top-[30%]" />}
+      {breaching && <Sparks className="absolute left-[2%] top-[66%] scale-75" />}
+      {breaching && <Sparks className="absolute right-[2%] top-[62%] scale-75" />}
+
+      <PixelCursor className="absolute -right-7 bottom-6 w-6 animate-cursor-tap drop-shadow-[2px_2px_0_#EEC324] motion-reduce:animate-none" />
+    </section>
+  );
+};
+
+const Footer = () => (
+  <footer className="relative mt-auto flex items-end justify-between pt-2">
+    <SpraySplat fill="fill-brand-pink" className="pointer-events-none absolute -bottom-3 -left-5 h-24 w-24 opacity-90" />
+    <p className="relative -rotate-6 font-marker text-[32px] leading-[0.9] text-brand-yellow">
+      PUERTA
+      <span className="block pl-16">18</span>
+    </p>
+    <p className="text-right font-mono text-[10px] leading-relaxed tracking-[0.22em] text-brand-white/60">
+      MUESTRA 26
+      <br />
+      FECHA: <span className="bg-brand-white/80 px-1 text-brand-black">██████</span>
+    </p>
+  </footer>
+);
+
+// ============================================================================
+// App
+// ============================================================================
 
 const App = () => {
-  return (
-    <main className="flex h-screen w-full flex-col items-center overflow-hidden bg-brand-dark bg-teaser-fade px-6 pb-6 pt-16 text-brand-light">
-      <h1 className="animate-pulse-slow font-mono text-3xl tracking-widest">CARGANDO MUESTRA...</h1>
+  const { status, offline, visitor } = useCommunityStatus();
+  const overloaded = status?.isOverloaded ?? false;
+  const step = useBreachSequence(overloaded);
+  const breaching = step === 'breaching';
 
-      <div className="flex w-full flex-1 items-center justify-center">
-        <Battery />
+  const signal: StatusBarProps['signal'] = overloaded ? 'overload' : offline ? 'lost' : status ? 'live' : 'linking';
+
+  return (
+    <main className="relative min-h-dvh overflow-hidden bg-brand-black text-brand-white">
+      {/* Background: violet top glow + grainy starburst (dominant colour, ~60%) */}
+      <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+        <div className="absolute inset-x-0 top-0 h-80 bg-top-glow" />
+        <Starburst className="absolute -right-20 top-16 w-64 animate-spin-slow opacity-80 motion-reduce:animate-none" />
       </div>
 
-      <section className="flex flex-col items-center">
-        <p className="font-mono text-3xl tracking-widest">AGENDÁ LA FECHA</p>
-        <CensoredDate />
-      </section>
+      {/* Outer layer shakes / flickers; inner layer carries the inherited RGB-split text-shadow. */}
+      <div
+        className={`relative z-10 mx-auto w-full max-w-[430px] ${
+          breaching ? 'animate-shake' : 'animate-flicker'
+        } motion-reduce:animate-none`}
+      >
+        <div
+          className={`flex min-h-dvh flex-col gap-4 px-4 pb-4 pt-4 ${
+            breaching ? 'animate-aberration motion-reduce:animate-none' : ''
+          }`}
+        >
+          <StatusBar signal={signal} />
+          <div className="h-px w-full bg-brand-white/80" />
+          <Manifesto breaching={breaching} />
+          <CommunityBoard status={status} offline={offline} visitor={visitor} alarm={overloaded} />
+          <MysteryDoor step={step} />
+          <Footer />
+        </div>
+      </div>
 
-      <footer className="mt-auto pt-10">
-        <span className="footer-logo font-marker text-4xl">PUERTA 18</span>
-      </footer>
+      {breaching && (
+        <div
+          className="pointer-events-none fixed inset-0 z-40 animate-flash bg-brand-white"
+          aria-hidden="true"
+        />
+      )}
+
+      <CrtOverlay />
+
+      <p className="sr-only" aria-live="assertive">
+        {step === 'revealed' ? '¿Y si te animás a cruzar la puerta? Fase 1 completada.' : ''}
+      </p>
     </main>
   );
 };
