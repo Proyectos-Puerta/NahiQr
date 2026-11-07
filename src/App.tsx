@@ -116,6 +116,14 @@ const useBreachSequence = (overloaded: boolean): BreachStep => {
   const [timedStep, setTimedStep] = useState<Exclude<BreachStep, 'sealed'>>('breaching');
   const [reduceMotion] = useState(prefersReducedMotion);
 
+  // Rewind when `overloaded` drops back to false (dev RESET), so the next unlock replays
+  // the full animation. "Adjust state on prop change" pattern: runs during render, no effect.
+  const [prevOverloaded, setPrevOverloaded] = useState(overloaded);
+  if (overloaded !== prevOverloaded) {
+    setPrevOverloaded(overloaded);
+    if (!overloaded) setTimedStep('breaching');
+  }
+
   useEffect(() => {
     if (!overloaded || reduceMotion) return;
     const t1 = window.setTimeout(() => setTimedStep('breaking'), BREACH_MS);
@@ -1064,16 +1072,69 @@ const Footer = ({ dateRevealed }: FooterProps) => (
 );
 
 // ============================================================================
+// Dev tools (never in production builds)
+// ============================================================================
+
+/**
+ * Compile-time flag: true under `npm run dev`, or on a deploy built with VITE_DEV_TOOLS=true
+ * (e.g. a Vercel Preview env var). Otherwise Vite inlines `false` and the panel is dropped
+ * from the bundle, so visitors can't unlock the reveal early.
+ */
+const SHOW_DEV_TOOLS = import.meta.env.DEV || import.meta.env.VITE_DEV_TOOLS === 'true';
+
+interface DevToolsProps {
+  active: boolean;
+  onSimulate: () => void;
+  onReset: () => void;
+}
+
+/** Faint corner panel to force Phase 2 locally. Touches React state only, never the API/DB. */
+const DevTools = ({ active, onSimulate, onReset }: DevToolsProps) => (
+  <div className="fixed bottom-2 right-2 z-[60] flex items-center gap-2 font-mono text-[10px] text-brand-white opacity-20 transition-opacity hover:opacity-100 focus-within:opacity-100">
+    {active && <span className="animate-blink text-brand-yellow">● DEV</span>}
+    <button
+      type="button"
+      onClick={onSimulate}
+      className="border border-brand-white/60 bg-brand-black px-1.5 py-1 tracking-widest hover:border-brand-yellow hover:text-brand-yellow"
+    >
+      [ SIMULAR 15 ]
+    </button>
+    <button
+      type="button"
+      onClick={onReset}
+      className="border border-brand-white/60 bg-brand-black px-1.5 py-1 tracking-widest hover:border-brand-yellow hover:text-brand-yellow"
+    >
+      [ RESET UI ]
+    </button>
+  </div>
+);
+
+const SIMULATED_STATUS: StatusResponse = { currentScans: FALLBACK_TARGET, target: FALLBACK_TARGET, isOverloaded: true };
+
+// ============================================================================
 // App
 // ============================================================================
 
 const App = () => {
   const { status, offline, visitor } = useCommunityStatus();
-  const overloaded = status?.isOverloaded ?? false;
-  const step = useBreachSequence(overloaded);
+  const [devOverride, setDevOverride] = useState(false);
+
+  // Everything below renders from these display values, never from the raw API state,
+  // so the dev override drives the whole Phase 1 → Phase 2 flow. (The board reads the
+  // scan count from `displayStatus`, so a simulated run shows [ 15 / 15 ].)
+  const displayStatus = devOverride ? SIMULATED_STATUS : status;
+  const displayOverloaded = displayStatus?.isOverloaded ?? false;
+
+  const step = useBreachSequence(displayOverloaded);
   const breaching = step === 'breaching';
 
-  const signal: StatusBarProps['signal'] = overloaded ? 'overload' : offline ? 'lost' : status ? 'live' : 'linking';
+  const signal: StatusBarProps['signal'] = displayOverloaded
+    ? 'overload'
+    : offline
+      ? 'lost'
+      : displayStatus
+        ? 'live'
+        : 'linking';
 
   return (
     <main className="relative min-h-dvh overflow-hidden bg-brand-black text-brand-white">
@@ -1097,7 +1158,12 @@ const App = () => {
           <StatusBar signal={signal} />
           <div className="h-px w-full bg-brand-white/80" />
           <Manifesto breaching={breaching} />
-          <CommunityBoard status={status} offline={offline} visitor={visitor} alarm={overloaded} />
+          <CommunityBoard
+            status={displayStatus}
+            offline={offline && !devOverride}
+            visitor={visitor}
+            alarm={displayOverloaded}
+          />
           <MysteryDoor step={step} />
           {step === 'revealed' && <DateDrop />}
           <Footer dateRevealed={step === 'revealed'} />
@@ -1112,6 +1178,10 @@ const App = () => {
       )}
 
       <CrtOverlay />
+
+      {SHOW_DEV_TOOLS && (
+        <DevTools active={devOverride} onSimulate={() => setDevOverride(true)} onReset={() => setDevOverride(false)} />
+      )}
 
       <p className="sr-only" aria-live="assertive">
         {step === 'revealed'

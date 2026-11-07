@@ -42,6 +42,9 @@ pixel cursor, CRT scanlines, RGB-split glitch.
   alternate/glitch (violet + yellow only). Decrypter banner `[ 16.12 ] ⇄ [ 17.12 ]` (`useDecrypt` hook, timer bursts
   only), `.ics` with both days (`public/puerta18-muestra26.ics`, headers in `vercel.json`) + Google Calendar links.
   Final day pending: when confirmed, edit `TENTATIVE_DAYS` in `App.tsx` **and** regenerate the `.ics`.
+- **Dev tools:** faint bottom-right panel `[ SIMULAR 15 ]` / `[ RESET UI ]` sets `devOverride` (UI only, no API/DB writes).
+  All rendering goes through `displayStatus` / `displayOverloaded`, never the raw API `status`. Compiled in only when
+  `import.meta.env.DEV` or `VITE_DEV_TOOLS=true` (e.g. Vercel Preview env); production builds strip it.
 
 ## AI Directives & Rules
 - **Mobile-First:** Design for 390-430px wide screens first (`flex-col`, centered content, `min-h-dvh`).
