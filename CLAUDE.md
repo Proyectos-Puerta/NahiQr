@@ -38,10 +38,11 @@ pixel cursor, CRT scanlines, RGB-split glitch.
 - **Phase 1** (< 15 unique scans): status board `[ X / 15 ESCANEOS ]`, manifesto, door padlocked + hazard barrier.
 - **Phase 2** (≥ 15): "OVERLOAD // PUERTA FORZADA": flash, sparks, glitch, padlock pops and drops, barrier snaps, reveals
   "¿Y SI TE ANIMÁS A CRUZAR LA PUERTA?" + "FASE 1 COMPLETADA".
-- **Date drop** (after the reveal): taped DICIEMBRE 2026 calendar card, hazard-framed week 14-20, 16 and 17
-  alternate/glitch (violet + yellow only). Decrypter banner `[ 16.12 ] ⇄ [ 17.12 ]` (`useDecrypt` hook, timer bursts
-  only), `.ics` with both days (`public/puerta18-muestra26.ics`, headers in `vercel.json`) + Google Calendar links.
-  Final day pending: when confirmed, edit `TENTATIVE_DAYS` in `App.tsx` **and** regenerate the `.ics`.
+- **Date drop** (after the reveal): taped DICIEMBRE 2026 calendar card; the target week Mon 14 → Sun 20 is one
+  uniform block (solid violet in a thick hazard frame). **The exact day is classified**: never show or ship a specific
+  day (no per-day highlights, no .ics, no calendar links) until the team announces it. Banner "SEMANA DEL 14 AL 20 DE DIC"
+  (GlitchText + scanline bars) + `[ ESTADO: DEFINIENDO DÍA EXACTO // ATENTOS A REDES ]`, CTA to
+  https://www.instagram.com/puerta18/. Week lives in `EVENT_WEEK` in `App.tsx`.
 - **Dev tools:** faint bottom-right panel `[ SIMULAR 15 ]` / `[ RESET UI ]` sets `devOverride` (UI only, no API/DB writes).
   All rendering goes through `displayStatus` / `displayOverloaded`, never the raw API `status`. Shown only on
   `npm run dev` or when the URL has `?dev=true` (no env vars). It's a hidden switch, not a secret: the dates ship in the bundle.
