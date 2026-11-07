@@ -186,6 +186,35 @@ export default {
           '0%': { transform: 'translateY(0) rotate(0deg)', opacity: '1' },
           '100%': { transform: 'translateY(170px) rotate(28deg)', opacity: '0' },
         },
+        // Date drop: the two shortlisted days take turns being "the one" (offset by half a cycle).
+        'day-alt': {
+          '0%, 46%, 100%': {
+            opacity: '1',
+            transform: 'scale(1.12)',
+            textShadow: '-2px 0 #9207EA, 2px 0 #EEC324, 0 0 12px rgba(238,195,36,0.75)',
+          },
+          '50%, 96%': { opacity: '0.45', transform: 'scale(1)', textShadow: '-1px 0 #9207EA, 1px 0 #EEC324' },
+        },
+        jitter: {
+          '0%, 100%': { transform: 'translate(0,0)' },
+          '25%': { transform: 'translate(-1px,1px)' },
+          '50%': { transform: 'translate(1px,0)' },
+          '75%': { transform: 'translate(0,-1px)' },
+        },
+        // Violet / yellow chromatic aberration (brand-only variant of `aberration`).
+        'aberration-yv': {
+          '0%, 100%': { textShadow: '-3px 0 #9207EA, 3px 0 rgba(255,255,255,0.35)' },
+          '30%': { textShadow: '3px 0 #9207EA, -2px 0 rgba(255,255,255,0.35)' },
+          '60%': { textShadow: '-1px 1px #9207EA, 2px -1px rgba(255,255,255,0.5)' },
+        },
+        'slice-bar': {
+          '0%': { top: '-10%' },
+          '100%': { top: '110%' },
+        },
+        'fade-up': {
+          '0%': { opacity: '0', transform: 'translateY(16px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
         'cursor-tap': {
           '0%, 100%': { transform: 'translate(0,0) scale(1)' },
           '40%, 60%': { transform: 'translate(-10px,-12px) scale(1)' },
@@ -215,6 +244,11 @@ export default {
         'shackle-open': 'shackle-open 0.9s cubic-bezier(0.3,1.4,0.5,1) 0.3s both',
         'lock-drop': 'lock-drop 0.8s cubic-bezier(0.5,0,0.75,0) 0.15s both',
         'hazard-scroll-lg': 'hazard-scroll-lg 0.35s linear infinite',
+        'day-alt': 'day-alt 2s steps(1) infinite',
+        jitter: 'jitter 0.35s steps(1) infinite',
+        'aberration-yv': 'aberration-yv 0.22s steps(1) infinite',
+        'slice-bar': 'slice-bar 1.8s linear infinite',
+        'fade-up': 'fade-up 0.6s ease-out 0.3s both',
         reveal: 'reveal 1.4s steps(22) both',
         stamp: 'stamp 0.28s cubic-bezier(0.2,0.8,0.3,1.4) 1.5s both',
         drip: 'drip 2.6s cubic-bezier(0.6,0,0.4,1) 0.6s both',

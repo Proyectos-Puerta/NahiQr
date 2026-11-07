@@ -1,0 +1,43 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Puerta 18//Muestra 26//ES
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:Puerta 18 · Muestra 26
+BEGIN:VEVENT
+UID:muestra26-20261216@puerta18
+DTSTAMP:20261107T000000Z
+DTSTART;VALUE=DATE:20261216
+DTEND;VALUE=DATE:20261217
+SUMMARY:PUERTA 18 · MUESTRA 26 · 16/12 (tentativa)
+DESCRIPTION:Muestra Anual 2026 de Puerta 18. El día definitivo se confirma
+  entre el 16 y el 17 de diciembre: agendá ambos y seguí atento. Si se co
+ nfirma el 17\, borrá este evento.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Puerta 18 · mañana puede ser el día. Revisá la fecha defini
+ tiva
+TRIGGER:-P1D
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:muestra26-20261217@puerta18
+DTSTAMP:20261107T000000Z
+DTSTART;VALUE=DATE:20261217
+DTEND;VALUE=DATE:20261218
+SUMMARY:PUERTA 18 · MUESTRA 26 · 17/12 (tentativa)
+DESCRIPTION:Muestra Anual 2026 de Puerta 18. El día definitivo se confirma
+  entre el 16 y el 17 de diciembre: agendá ambos y seguí atento. Si se co
+ nfirma el 16\, borrá este evento.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Puerta 18 · mañana puede ser el día. Revisá la fecha defini
+ tiva
+TRIGGER:-P1D
+END:VALARM
+END:VEVENT
+END:VCALENDAR

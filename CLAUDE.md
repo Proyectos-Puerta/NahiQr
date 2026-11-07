@@ -38,6 +38,10 @@ pixel cursor, CRT scanlines, RGB-split glitch.
 - **Phase 1** (< 15 unique scans): status board `[ X / 15 ESCANEOS ]`, manifesto, door padlocked + hazard barrier.
 - **Phase 2** (≥ 15): "OVERLOAD // PUERTA FORZADA": flash, sparks, glitch, padlock pops and drops, barrier snaps, reveals
   "¿Y SI TE ANIMÁS A CRUZAR LA PUERTA?" + "FASE 1 COMPLETADA".
+- **Date drop** (after the reveal): taped DICIEMBRE 2026 calendar card, hazard-framed week 14-20, 16 and 17
+  alternate/glitch (violet + yellow only). Decrypter banner `[ 16.12 ] ⇄ [ 17.12 ]` (`useDecrypt` hook, timer bursts
+  only), `.ics` with both days (`public/puerta18-muestra26.ics`, headers in `vercel.json`) + Google Calendar links.
+  Final day pending: when confirmed, edit `TENTATIVE_DAYS` in `App.tsx` **and** regenerate the `.ics`.
 
 ## AI Directives & Rules
 - **Mobile-First:** Design for 390-430px wide screens first (`flex-col`, centered content, `min-h-dvh`).

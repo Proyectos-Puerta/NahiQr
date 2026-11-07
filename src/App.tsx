@@ -361,16 +361,23 @@ interface GlitchTextProps extends ClassNameProps {
   text: string;
   /** Constant hard glitching instead of the occasional idle hiccup. */
   intense?: boolean;
+  /** 'rgb' = pink/cyan split (default); 'brand' = violet/yellow split. */
+  tone?: 'rgb' | 'brand';
 }
 
-/** Text with pink / cyan sliced copies rendered in ::before / ::after. */
-const GlitchText = ({ text, className = '', intense = false }: GlitchTextProps) => (
+const GLITCH_TONES: Record<NonNullable<GlitchTextProps['tone']>, [before: string, after: string]> = {
+  rgb: ['before:text-brand-pink', 'after:text-fx-cyan'],
+  brand: ['before:text-brand-violet', 'after:text-brand-yellow'],
+};
+
+/** Text with two colour-split sliced copies rendered in ::before / ::after. */
+const GlitchText = ({ text, className = '', intense = false, tone = 'rgb' }: GlitchTextProps) => (
   <span
     data-text={text}
     className={[
       'relative inline-block',
-      'before:pointer-events-none before:absolute before:inset-0 before:text-brand-pink before:content-[attr(data-text)]',
-      'after:pointer-events-none after:absolute after:inset-0 after:text-fx-cyan after:content-[attr(data-text)]',
+      `before:pointer-events-none before:absolute before:inset-0 ${GLITCH_TONES[tone][0]} before:content-[attr(data-text)]`,
+      `after:pointer-events-none after:absolute after:inset-0 ${GLITCH_TONES[tone][1]} after:content-[attr(data-text)]`,
       'motion-reduce:before:hidden motion-reduce:after:hidden',
       intense
         ? 'before:animate-glitch-a after:animate-glitch-b'
@@ -737,7 +744,306 @@ const MysteryDoor = ({ step }: MysteryDoorProps) => {
   );
 };
 
-const Footer = () => (
+// ============================================================================
+// Phase 2 date drop: tentative 16 / 17 December 2026
+// ============================================================================
+
+/** Shortlisted days. When the final day is confirmed, leave one entry here and update public/*.ics. */
+const TENTATIVE_DAYS = [16, 17] as const;
+const EVENT_YEAR = 2026;
+const EVENT_MONTH = 11; // December (0-based)
+const HIGHLIGHT_WEEK = { from: 14, to: 20 } as const; // Mon 14 → Sun 20
+const ICS_PATH = '/puerta18-muestra26.ics';
+const EVENT_TITLE = 'PUERTA 18 · MUESTRA 26 (fecha tentativa)';
+const EVENT_DETAILS =
+  'Muestra Anual 2026 de Puerta 18. El día definitivo se confirma entre el 16 y el 17 de diciembre: agendá ambos y seguí atento.';
+
+const WEEKDAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'] as const;
+
+/** Monday-first weeks of the event month; null = padding cell. */
+const CALENDAR_WEEKS: (number | null)[][] = (() => {
+  const offset = (new Date(EVENT_YEAR, EVENT_MONTH, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(EVENT_YEAR, EVENT_MONTH + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array.from({ length: offset }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  return Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+})();
+
+const yyyymmdd = (day: number) => {
+  const d = new Date(EVENT_YEAR, EVENT_MONTH, day);
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** All-day Google Calendar template link (end date is exclusive). */
+const googleCalendarUrl = (day: number): string => {
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: EVENT_TITLE,
+    dates: `${yyyymmdd(day)}/${yyyymmdd(day + 1)}`,
+    details: `${EVENT_DETAILS}\n${window.location.origin}`,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+};
+
+// Corrupt glyphs for the scramble. Mostly ASCII so VT323 keeps every frame the same width.
+const SCRAMBLE_GLYPHS = '?!#%&*<>/\\▓01679';
+// Characters that never scramble, so the frame of the text stays put.
+const SCRAMBLE_KEEP = new Set([' ', '[', ']', '.', '/']);
+
+const randomGlyph = () => SCRAMBLE_GLYPHS[Math.floor(Math.random() * SCRAMBLE_GLYPHS.length)];
+
+interface DecryptOptions {
+  /** How long each value rests before the next scramble. */
+  holdMs: number;
+  /** Extra wait before the very first scramble (to desync several instances). */
+  startDelayMs?: number;
+  frameMs?: number;
+  frames?: number;
+}
+
+/**
+ * Cycles through `values`, scrambling into each one and resolving left to right.
+ * With a single value it periodically "corrupts" and re-decrypts it (e.g. 16 → 1? → 1▓ → 16).
+ * State only changes during the short scramble bursts, so renders stay rare and local.
+ * `values` must be a stable (module-level) array.
+ */
+const useDecrypt = (
+  values: readonly string[],
+  { holdMs, startDelayMs = 0, frameMs = 55, frames = 6 }: DecryptOptions,
+): string => {
+  const [text, setText] = useState(values[0]);
+  const [reduceMotion] = useState(prefersReducedMotion);
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    let timer = 0;
+    let index = 0;
+
+    const scrambleTo = (target: string, frame: number) => {
+      if (frame >= frames) {
+        setText(target);
+        timer = window.setTimeout(next, holdMs);
+        return;
+      }
+      const resolved = Math.floor((frame / frames) * target.length);
+      setText(
+        [...target].map((ch, i) => (i < resolved || SCRAMBLE_KEEP.has(ch) ? ch : randomGlyph())).join(''),
+      );
+      timer = window.setTimeout(() => scrambleTo(target, frame + 1), frameMs);
+    };
+
+    const next = () => {
+      index = (index + 1) % values.length;
+      scrambleTo(values[index], 0);
+    };
+
+    timer = window.setTimeout(next, holdMs + startDelayMs);
+    return () => window.clearTimeout(timer);
+  }, [values, holdMs, startDelayMs, frameMs, frames, reduceMotion]);
+
+  return text;
+};
+
+const DAY_VALUES: Record<number, readonly string[]> = Object.fromEntries(
+  TENTATIVE_DAYS.map((d) => [d, [String(d)]]),
+);
+const HEADLINE_VALUES = TENTATIVE_DAYS.map((d) => `[ ${d}.12 ]`);
+
+interface TentativeDayProps {
+  day: number;
+  /** Which half of the alternating highlight cycle this cell lights up in. */
+  phase: 0 | 1;
+}
+
+/** Calendar cell for a shortlisted day: alternating glow, jitter and periodic corruption. */
+const TentativeDay = ({ day, phase }: TentativeDayProps) => {
+  const text = useDecrypt(DAY_VALUES[day], { holdMs: 1100, startDelayMs: phase * 550, frames: 5 });
+  return (
+    <span
+      className={`relative z-10 inline-block animate-day-alt font-pixel text-[26px] leading-none text-brand-white motion-reduce:animate-none ${
+        phase === 1 ? '[animation-delay:-1s]' : ''
+      }`}
+    >
+      <span className="inline-block min-w-[2ch] animate-jitter text-center motion-reduce:animate-none">{text}</span>
+    </span>
+  );
+};
+
+/** Rough yellow spray loop circling the two shortlisted days, with drips. */
+const SprayLoop = ({ className = '' }: ClassNameProps) => {
+  const id = useId();
+  return (
+    <span className={`pointer-events-none absolute ${className}`} aria-hidden="true">
+      <svg viewBox="0 0 100 50" preserveAspectRatio="none" className="h-full w-full animate-pulse-slow overflow-visible motion-reduce:animate-none">
+        <defs>
+          <SprayFilter id={id} />
+        </defs>
+        <path
+          d="M10 14C26 2 74 0 90 12c10 9 6 24-14 30-22 6-52 6-66-4C-2 30 0 18 16 10"
+          className="fill-none stroke-brand-yellow"
+          strokeWidth={3.2}
+          strokeLinecap="round"
+          filter={`url(#${id})`}
+        />
+      </svg>
+      <span className="absolute left-[30%] top-[92%] h-5 w-[3px] origin-top animate-drip rounded-b-full bg-brand-yellow motion-reduce:animate-none" />
+      <span className="absolute left-[64%] top-[90%] h-8 w-[3px] origin-top animate-drip rounded-b-full bg-brand-yellow [animation-delay:1.2s] motion-reduce:animate-none" />
+    </span>
+  );
+};
+
+const CalendarCard = () => {
+  const [first, second] = TENTATIVE_DAYS;
+  return (
+    <div className="relative -rotate-1 border-2 border-brand-white bg-brand-black px-3 pb-5 pt-7">
+      <DuctTape className="absolute -top-3.5 left-1/2 h-7 w-44 -translate-x-1/2 rotate-2" label="AGENDÁ · DIC 26" />
+      <Screw className="absolute bottom-1.5 left-1.5" />
+      <Screw className="absolute bottom-1.5 right-1.5 rotate-45" />
+
+      <div className="flex items-end justify-between">
+        <h3 id="fecha-titulo" className="font-display text-[30px] font-bold uppercase leading-none text-brand-white">
+          Diciembre
+        </h3>
+        <span className="font-pixel text-[30px] leading-none text-brand-yellow">{EVENT_YEAR}</span>
+      </div>
+      <div className="my-2 h-px bg-brand-white/60" />
+
+      <div className="grid grid-cols-7 pb-1 text-center font-mono text-[10px] tracking-widest text-brand-white/50">
+        {WEEKDAY_LABELS.map((label, i) => (
+          <span key={i}>{label}</span>
+        ))}
+      </div>
+
+      {CALENDAR_WEEKS.map((week, w) => {
+        const isEventWeek = week.includes(HIGHLIGHT_WEEK.from) && week.includes(HIGHLIGHT_WEEK.to);
+        const cells = week.map((day, i) => {
+          const tentative = day === first || day === second;
+          return (
+            <span key={i} className="flex h-9 items-center justify-center">
+              {day === null ? null : tentative ? (
+                <TentativeDay day={day} phase={day === first ? 0 : 1} />
+              ) : (
+                <span
+                  className={`font-pixel text-[20px] leading-none ${isEventWeek ? 'text-brand-white/80' : 'text-brand-white/35'}`}
+                >
+                  {day}
+                </span>
+              )}
+            </span>
+          );
+        });
+
+        if (!isEventWeek) {
+          return (
+            <div key={w} className="grid grid-cols-7">
+              {cells}
+            </div>
+          );
+        }
+
+        // Event week: hazard-striped frame with a dim violet wash, plus the spray loop on 16-17.
+        const firstCol = week.indexOf(first);
+        return (
+          <div key={w} className="my-1 bg-hazard p-[3px]">
+            <div className="relative grid grid-cols-7 bg-brand-black">
+              <div className="pointer-events-none absolute inset-0 bg-brand-violet/20" aria-hidden="true" />
+              {cells}
+              {/* Wed 16 + Thu 17 = columns 3-4 (28.6%-57.1%); the loop overshoots them a little. */}
+              {firstCol === 2 && <SprayLoop className="-inset-y-2 left-[25%] w-[35%]" />}
+            </div>
+          </div>
+        );
+      })}
+
+      <p className="mt-3 text-center font-mono text-[10px] tracking-[0.2em] text-brand-white/60">
+        SEMANA {HIGHLIGHT_WEEK.from}—{HIGHLIGHT_WEEK.to} · <span className="text-brand-yellow">{first} Ó {second}</span>
+      </p>
+    </div>
+  );
+};
+
+/** Scramble headline [ 16.12 ] ⇄ [ 17.12 ] plus the sliced "16 // 17" line and status tags. */
+const DecrypterBanner = () => {
+  const headline = useDecrypt(HEADLINE_VALUES, { holdMs: 1000 });
+  const [first, second] = TENTATIVE_DAYS;
+  return (
+    <div className="mt-7 text-center">
+      <p className="sr-only">
+        Fecha tentativa: {first} o {second} de diciembre de {EVENT_YEAR}.
+      </p>
+      <p
+        aria-hidden="true"
+        className="animate-aberration-yv whitespace-pre font-pixel text-[clamp(52px,16vw,66px)] leading-none text-brand-yellow motion-reduce:animate-none"
+      >
+        {headline}
+      </p>
+
+      <div className="relative mx-auto mt-2 w-fit overflow-hidden px-1" aria-hidden="true">
+        <GlitchText
+          tone="brand"
+          text={`${first} // ${second} DE DICIEMBRE`}
+          className="font-display text-[26px] font-bold uppercase leading-tight text-brand-white"
+        />
+        {/* Scanline bars slicing through the line */}
+        <span className="pointer-events-none absolute inset-x-0 h-[3px] animate-slice-bar bg-brand-black motion-reduce:hidden" />
+        <span className="pointer-events-none absolute inset-x-0 h-[2px] animate-slice-bar bg-brand-violet/80 [animation-delay:-0.9s] motion-reduce:hidden" />
+      </div>
+
+      <p className="mx-auto mt-3 w-fit max-w-full border border-brand-yellow/70 px-2 py-1 font-mono text-[10px] leading-relaxed tracking-[0.12em] text-brand-yellow">
+        [ ESTADO: SELECCIONANDO DÍA DEFINITIVO // CALIBRANDO NODO ]
+        <span className="ml-1 inline-block h-2.5 w-1.5 translate-y-0.5 animate-blink bg-brand-yellow" />
+      </p>
+      <p className="mt-2 font-mono text-[11px] tracking-[0.15em] text-brand-white/60">Puerta 18 · Muestra Anual 2026</p>
+    </div>
+  );
+};
+
+const AgendarActions = () => (
+  <div className="mt-6 flex flex-col gap-2.5">
+    {/* .ics with both days: iOS opens the "Add to Calendar" sheet; Android/desktop import it. */}
+    <a
+      href={ICS_PATH}
+      className="block bg-brand-yellow py-3.5 text-center font-mono text-[15px] tracking-[0.18em] text-brand-black shadow-[4px_4px_0_#9207EA] transition-transform active:translate-x-[2px] active:translate-y-[2px] active:shadow-[2px_2px_0_#9207EA] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-white"
+    >
+      [ AGENDAR AMBAS FECHAS ]
+      <span className="block text-[9px] tracking-[0.25em] text-brand-black/70">ARCHIVO .ICS · CUALQUIER CALENDARIO</span>
+    </a>
+    <div className="grid grid-cols-2 gap-2.5">
+      {TENTATIVE_DAYS.map((day) => (
+        <a
+          key={day}
+          href={googleCalendarUrl(day)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block border-2 border-brand-white py-2.5 text-center font-mono text-xs tracking-[0.18em] text-brand-white active:bg-brand-white active:text-brand-black focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-yellow"
+        >
+          [ AGENDAR {day} ]
+          <span className="block text-[9px] tracking-[0.2em] opacity-60">GOOGLE CALENDAR</span>
+        </a>
+      ))}
+    </div>
+  </div>
+);
+
+const DateDrop = () => (
+  <section aria-labelledby="fecha-titulo" className="mt-2 animate-fade-up motion-reduce:animate-none">
+    <p className="mb-6 animate-blink text-center font-mono text-[10px] tracking-[0.3em] text-brand-yellow motion-reduce:animate-none">
+      ▼ FECHA DESENCRIPTADA ▼
+    </p>
+    <CalendarCard />
+    <DecrypterBanner />
+    <AgendarActions />
+  </section>
+);
+
+interface FooterProps {
+  dateRevealed: boolean;
+}
+
+const Footer = ({ dateRevealed }: FooterProps) => (
   <footer className="relative mt-auto flex items-end justify-between pt-2">
     <SpraySplat fill="fill-brand-pink" className="pointer-events-none absolute -bottom-3 -left-5 h-24 w-24 opacity-90" />
     <p className="relative -rotate-6 font-marker text-[32px] leading-[0.9] text-brand-yellow">
@@ -747,7 +1053,12 @@ const Footer = () => (
     <p className="text-right font-mono text-[10px] leading-relaxed tracking-[0.22em] text-brand-white/60">
       MUESTRA 26
       <br />
-      FECHA: <span className="bg-brand-white/80 px-1 text-brand-black">██████</span>
+      FECHA:{' '}
+      {dateRevealed ? (
+        <span className="text-brand-yellow">{TENTATIVE_DAYS.join('/')}.12</span>
+      ) : (
+        <span className="bg-brand-white/80 px-1 text-brand-black">██████</span>
+      )}
     </p>
   </footer>
 );
@@ -788,7 +1099,8 @@ const App = () => {
           <Manifesto breaching={breaching} />
           <CommunityBoard status={status} offline={offline} visitor={visitor} alarm={overloaded} />
           <MysteryDoor step={step} />
-          <Footer />
+          {step === 'revealed' && <DateDrop />}
+          <Footer dateRevealed={step === 'revealed'} />
         </div>
       </div>
 
@@ -802,7 +1114,9 @@ const App = () => {
       <CrtOverlay />
 
       <p className="sr-only" aria-live="assertive">
-        {step === 'revealed' ? '¿Y si te animás a cruzar la puerta? Fase 1 completada.' : ''}
+        {step === 'revealed'
+          ? `¿Y si te animás a cruzar la puerta? Fase 1 completada. Fecha tentativa: ${TENTATIVE_DAYS.join(' o ')} de diciembre.`
+          : ''}
       </p>
     </main>
   );
