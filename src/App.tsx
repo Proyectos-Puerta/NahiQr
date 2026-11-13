@@ -15,7 +15,7 @@ interface ScanResponse extends StatusResponse {
 }
 
 const POLL_MS = 3000;
-const FALLBACK_TARGET = 15;
+const FALLBACK_TARGET = 19;
 
 const isStatusResponse = (x: unknown): x is StatusResponse =>
   typeof x === 'object' &&
@@ -566,7 +566,7 @@ const StatusBar = ({ signal }: StatusBarProps) => {
         </p>
         <p className={`mt-1 flex items-center gap-2 font-mono text-[10px] tracking-[0.25em] ${s.tone}`}>
           <span className={`inline-block h-1.5 w-1.5 animate-blink ${s.dot}`} />
-          NODO: PUERTA_18 · {s.text}
+          MODO: PUERTA_18 · {s.text}
         </p>
       </div>
       <CautionBadge className="h-11 w-12 shrink-0 -rotate-6" />
@@ -674,9 +674,8 @@ const CommunityBoard = ({ status, offline, visitor, alarm }: CommunityBoardProps
       </div>
 
       <p
-        className={`mt-2.5 font-mono text-[11px] tracking-[0.18em] ${
-          offline ? 'text-brand-orange' : 'text-brand-white/75'
-        } ${!status ? 'animate-pulse-slow' : ''}`}
+        className={`mt-2.5 font-mono text-[11px] tracking-[0.18em] ${offline ? 'text-brand-orange' : 'text-brand-white/75'
+          } ${!status ? 'animate-pulse-slow' : ''}`}
       >
         {hint}
       </p>
@@ -706,9 +705,8 @@ const MysteryDoor = ({ step }: MysteryDoorProps) => {
 
         {/* Opening */}
         <div
-          className={`absolute inset-[10px] bottom-0 flex flex-col items-center overflow-hidden rounded-t-full bg-brand-black ${
-            revealed ? 'justify-center' : 'justify-start pt-9'
-          } ${breaching ? 'animate-static-noise bg-grain bg-[length:90px_90px]' : ''}`}
+          className={`absolute inset-[10px] bottom-0 flex flex-col items-center overflow-hidden rounded-t-full bg-brand-black ${revealed ? 'justify-center' : 'justify-start pt-9'
+            } ${breaching ? 'animate-static-noise bg-grain bg-[length:90px_90px]' : ''}`}
         >
           {revealed ? (
             <div className="flex flex-col items-center px-4 pt-6 text-center">
@@ -802,9 +800,8 @@ const CalendarCard = () => (
         <span key={i} className="flex h-9 items-center justify-center">
           {day !== null && (
             <span
-              className={`font-pixel leading-none ${
-                isEventWeek ? 'text-[24px] text-brand-white' : 'text-[20px] text-brand-white/35'
-              }`}
+              className={`font-pixel leading-none ${isEventWeek ? 'text-[24px] text-brand-white' : 'text-[20px] text-brand-white/35'
+                }`}
             >
               {day}
             </span>
@@ -950,7 +947,7 @@ const DevTools = ({ active, onSimulate, onReset }: DevToolsProps) => (
       onClick={onSimulate}
       className="border border-brand-white/60 bg-brand-black px-1.5 py-1 tracking-widest hover:border-brand-yellow hover:text-brand-yellow"
     >
-      [ SIMULAR 15 ]
+      [ SIMULAR 19 ]
     </button>
     <button
       type="button"
@@ -999,14 +996,12 @@ const App = () => {
 
       {/* Outer layer shakes / flickers; inner layer carries the inherited RGB-split text-shadow. */}
       <div
-        className={`relative z-10 mx-auto w-full max-w-[430px] ${
-          breaching ? 'animate-shake' : 'animate-flicker'
-        } motion-reduce:animate-none`}
+        className={`relative z-10 mx-auto w-full max-w-[430px] ${breaching ? 'animate-shake' : 'animate-flicker'
+          } motion-reduce:animate-none`}
       >
         <div
-          className={`flex min-h-dvh flex-col gap-4 px-4 pb-4 pt-4 ${
-            breaching ? 'animate-aberration motion-reduce:animate-none' : ''
-          }`}
+          className={`flex min-h-dvh flex-col gap-4 px-4 pb-4 pt-4 ${breaching ? 'animate-aberration motion-reduce:animate-none' : ''
+            }`}
         >
           <StatusBar signal={signal} />
           <div className="h-px w-full bg-brand-white/80" />
