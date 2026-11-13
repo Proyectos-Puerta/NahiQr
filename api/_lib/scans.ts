@@ -3,7 +3,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { createHmac } from 'node:crypto';
 
-export const TARGET = 15;
+export const TARGET = 19;
 
 export interface StatusPayload {
   currentScans: number;
